@@ -6,6 +6,13 @@ datasource db {
   provider = "postgresql"
 }
 
+enum DocumentSourceType {
+  text
+  txt
+  pdf
+  docx
+}
+
 model User {
   id           String   @id @default(cuid())
   username     String   @unique
@@ -22,5 +29,82 @@ model Lesson {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  documents        LessonDocument[]
+  chunks           DocumentChunk[]
+  generatedLessons GeneratedLesson[]
+  assessments      LessonAssessment[]
+}
+
+model LessonDocument {
+  id         String             @id @default(cuid())
+  lessonId   String
+  title      String
+  fileName   String?
+  mimeType   String?
+  size       Int?
+  sourceType DocumentSourceType @default(text)
+  rawText    String
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+
+  lesson Lesson         @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  chunks DocumentChunk[]
+
+  @@index([lessonId])
+}
+
+model DocumentChunk {
+  id         String   @id @default(cuid())
+  lessonId   String
+  documentId String
+  content    String
+  chunkIndex Int
+  embedding  Json
+  createdAt  DateTime @default(now())
+
+  lesson   Lesson         @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  document LessonDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([lessonId])
+  @@index([documentId])
+}
+
+model GeneratedLesson {
+  id         String   @id @default(cuid())
+  lessonId    String
+  content     String
+  sourceCount Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  lesson Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@index([lessonId])
+}
+
+model LessonAssessment {
+  id         String               @id @default(cuid())
+  lessonId   String
+  title      String
+  createdAt  DateTime             @default(now())
+  updatedAt  DateTime             @updatedAt
+  lesson     Lesson               @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  questions  AssessmentQuestion[]
+
+  @@index([lessonId])
+}
+
+model AssessmentQuestion {
+  id             String           @id @default(cuid())
+  assessmentId   String
+  question       String
+  options        Json
+  correctAnswer  String
+  explanation    String
+  questionIndex  Int
+  createdAt      DateTime         @default(now())
+  assessment     LessonAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+
+  @@index([assessmentId])
 }

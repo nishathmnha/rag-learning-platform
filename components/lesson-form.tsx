@@ -33,7 +33,9 @@ export function LessonForm() {
           return;
         }
 
-        router.push("/dashboard");
+        const lesson = (await response.json()) as { id: string };
+
+        router.push(`/lessons/${lesson.id}`);
         router.refresh();
       }}
     >
@@ -60,7 +62,7 @@ export function LessonForm() {
       ) : null}
 
       <button
-        className="inline-flex rounded-full bg-slate-900 px-5 py-3 text-sm font-medium text-white disabled:opacity-60"
+        className="inline-flex rounded-full bg-indigo-600 px-5 py-3 text-sm font-medium text-white shadow-[0_12px_25px_rgba(79,70,229,0.22)] transition hover:bg-indigo-500 disabled:opacity-60"
         disabled={isSubmitting}
         type="submit"
       >
