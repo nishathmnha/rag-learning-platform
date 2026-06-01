@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { createEmbedding } from "@/lib/ai/embeddings";
+import { createEmbeddings } from "@/lib/ai/embeddings";
 import { chunkText } from "@/lib/rag/chunking";
 import { ExtractedDocument } from "@/lib/rag/extract-document";
 import { upsertLessonChunksToLanceDb } from "@/lib/rag/lancedb";
@@ -29,7 +29,11 @@ export async function ingestTextDocument({
     throw new Error("Document text is empty after normalization.");
   }
 
-  const embeddings = await Promise.all(chunks.map((chunk) => createEmbedding(chunk)));
+  const embeddings = await createEmbeddings(chunks);
+
+  if (embeddings.length !== chunks.length || embeddings.some((embedding) => embedding.length === 0)) {
+    throw new Error("The embedding service returned incomplete vectors for this document.");
+  }
 
   const { document, createdChunks } = await prisma.$transaction(async (transaction) => {
     const createdDocument = await transaction.lessonDocument.create({

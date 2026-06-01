@@ -92,15 +92,107 @@ function renderInlineFormatting(text: string) {
   });
 }
 
+const plainTextLessonHeadings = new Set([
+  "introduction",
+  "key concepts",
+  "examples",
+  "summary",
+  "overview",
+  "takeaways",
+  "next steps",
+]);
+
+function isPlainTextHeading(line: string) {
+  const normalizedLine = line.replace(/:$/, "").trim().toLowerCase();
+
+  if (plainTextLessonHeadings.has(normalizedLine)) {
+    return true;
+  }
+
+  if (line.length > 80 || /[.!?]$/.test(line)) {
+    return false;
+  }
+
+  if (/^[-*]\s/.test(line) || /^\d+[.)]\s+/.test(line)) {
+    return false;
+  }
+
+  return /:$/.test(line) && /^[A-Za-z0-9/&(),'" -:]+$/.test(line);
+}
+
 function FormattedLessonContent({ content }: { content: string }) {
   const lines = content.replace(/\r\n/g, "\n").split("\n");
+  type OrderedListDetail =
+    | { type: "paragraph"; text: string }
+    | { type: "list"; items: string[] };
+
   const blocks: Array<
     | { type: "heading"; text: string }
     | { type: "list"; items: string[] }
-    | { type: "ordered-list"; items: string[] }
+    | {
+        type: "ordered-list";
+        items: Array<{ title: string; details: OrderedListDetail[] }>;
+      }
     | { type: "paragraph"; text: string }
     | { type: "divider" }
   > = [];
+
+  function readBulletList(startIndex: number) {
+    const items: string[] = [];
+    let nextIndex = startIndex;
+
+    while (nextIndex < lines.length) {
+      const currentLine = lines[nextIndex].trim();
+
+      if (!currentLine) {
+        const upcomingLine = lines[nextIndex + 1]?.trim() ?? "";
+
+        if (/^- /.test(upcomingLine)) {
+          nextIndex += 1;
+          continue;
+        }
+
+        break;
+      }
+
+      if (!/^- /.test(currentLine)) {
+        break;
+      }
+
+      items.push(currentLine.replace(/^- /, ""));
+      nextIndex += 1;
+    }
+
+    return { items, nextIndex };
+  }
+
+  function readParagraph(startIndex: number) {
+    const paragraphLines: string[] = [];
+    let nextIndex = startIndex;
+
+    while (nextIndex < lines.length) {
+      const currentLine = lines[nextIndex].trim();
+
+      if (
+        !currentLine ||
+        /^- /.test(currentLine) ||
+        /^\d+[.)]\s+/.test(currentLine) ||
+        /^-{3,}$/.test(currentLine) ||
+        /^(#{1,6}\s+)/.test(currentLine) ||
+        isPlainTextHeading(currentLine)
+      ) {
+        break;
+      }
+
+      paragraphLines.push(currentLine);
+      nextIndex += 1;
+    }
+
+    return {
+      text: paragraphLines.join(" "),
+      nextIndex,
+    };
+  }
 
   for (let index = 0; index < lines.length; ) {
     const line = lines[index].trim();
@@ -119,24 +211,91 @@ function FormattedLessonContent({ content }: { content: string }) {
       continue;
     }
 
-    if (/^- /.test(line)) {
-      const items: string[] = [];
+    if (isPlainTextHeading(line)) {
+      blocks.push({
+        type: "heading",
+        text: line.replace(/:$/, ""),
+      });
+      index += 1;
+      continue;
+    }
 
-      while (index < lines.length && /^- /.test(lines[index].trim())) {
-        items.push(lines[index].trim().replace(/^- /, ""));
-        index += 1;
-      }
+    if (/^- /.test(line)) {
+      const { items, nextIndex } = readBulletList(index);
+      index = nextIndex;
 
       blocks.push({ type: "list", items });
       continue;
     }
 
-    if (/^\d+\.\s+/.test(line)) {
-      const items: string[] = [];
+    if (/^\d+[.)]\s+/.test(line)) {
+      const items: Array<{ title: string; details: OrderedListDetail[] }> = [];
 
-      while (index < lines.length && /^\d+\.\s+/.test(lines[index].trim())) {
-        items.push(lines[index].trim().replace(/^\d+\.\s+/, ""));
+      while (index < lines.length) {
+        const currentLine = lines[index].trim();
+
+        if (!currentLine) {
+          const nextLine = lines[index + 1]?.trim() ?? "";
+
+          if (/^\d+[.)]\s+/.test(nextLine)) {
+            index += 1;
+            continue;
+          }
+
+          break;
+        }
+
+        if (!/^\d+[.)]\s+/.test(currentLine)) {
+          break;
+        }
+
+        const item = {
+          title: currentLine.replace(/^\d+[.)]\s+/, ""),
+          details: [] as OrderedListDetail[],
+        };
+
         index += 1;
+
+        while (index < lines.length) {
+          const detailLine = lines[index].trim();
+
+          if (!detailLine) {
+            index += 1;
+            continue;
+          }
+
+          if (
+            /^\d+[.)]\s+/.test(detailLine) ||
+            /^-{3,}$/.test(detailLine) ||
+            /^(#{1,6}\s+)/.test(detailLine) ||
+            isPlainTextHeading(detailLine)
+          ) {
+            break;
+          }
+
+          if (/^- /.test(detailLine)) {
+            const { items: detailItems, nextIndex } = readBulletList(index);
+            item.details.push({
+              type: "list",
+              items: detailItems,
+            });
+            index = nextIndex;
+            continue;
+          }
+
+          const { text, nextIndex } = readParagraph(index);
+
+          if (text) {
+            item.details.push({
+              type: "paragraph",
+              text,
+            });
+          }
+
+          index = nextIndex;
+        }
+
+        items.push(item);
       }
 
       blocks.push({ type: "ordered-list", items });
@@ -149,28 +308,12 @@ function FormattedLessonContent({ content }: { content: string }) {
       continue;
     }
 
-    const paragraphLines: string[] = [];
-
-    while (index < lines.length) {
-      const currentLine = lines[index].trim();
-
-      if (
-        !currentLine ||
-        /^- /.test(currentLine) ||
-        /^\d+\.\s+/.test(currentLine) ||
-        /^-{3,}$/.test(currentLine) ||
-        /^(#{1,6}\s+)/.test(currentLine)
-      ) {
-        break;
-      }
-
-      paragraphLines.push(currentLine);
-      index += 1;
-    }
+    const { text, nextIndex } = readParagraph(index);
+    index = nextIndex;
 
     blocks.push({
       type: "paragraph",
-      text: paragraphLines.join(" "),
+      text,
     });
   }
 
@@ -192,10 +335,10 @@ function FormattedLessonContent({ content }: { content: string }) {
           return (
             <ul
               key={`${block.items.join("-")}-${index}`}
-              className="space-y-2 pl-5 text-sm leading-7 text-slate-700"
+              className="list-disc space-y-2 pl-5 text-sm leading-7 text-slate-700"
             >
               {block.items.map((item, itemIndex) => (
-                <li key={`${item}-${itemIndex}`} className="list-disc">
+                <li key={`${item}-${itemIndex}`}>
                   {renderInlineFormatting(item)}
                 </li>
               ))}
@@ -206,12 +349,34 @@ function FormattedLessonContent({ content }: { content: string }) {
         if (block.type === "ordered-list") {
           return (
             <ol
-              key={`${block.items.join("-")}-${index}`}
-              className="space-y-2 pl-5 text-sm leading-7 text-slate-700"
+              key={`${block.items.map((item) => item.title).join("-")}-${index}`}
+              className="list-decimal space-y-2 pl-5 text-sm leading-7 text-slate-700"
             >
               {block.items.map((item, itemIndex) => (
-                <li key={`${item}-${itemIndex}`} className="list-decimal">
-                  {renderInlineFormatting(item)}
+                <li key={`${item.title}-${itemIndex}`} className="space-y-3">
+                  <p>{renderInlineFormatting(item.title)}</p>
+                  {item.details.map((detail, detailIndex) => {
+                    if (detail.type === "list") {
+                      return (
+                        <ul
+                          key={`${item.title}-list-${detailIndex}`}
+                          className="list-disc space-y-2 pl-5 text-sm leading-7 text-slate-700"
+                        >
+                          {detail.items.map((detailItem, nestedIndex) => (
+                            <li key={`${detailItem}-${nestedIndex}`}>
+                              {renderInlineFormatting(detailItem)}
+                            </li>
+                          ))}
+                        </ul>
+                      );
+                    }
+
+                    return (
+                      <p key={`${item.title}-paragraph-${detailIndex}`}>
+                        {renderInlineFormatting(detail.text)}
+                      </p>
+                    );
+                  })}
                 </li>
               ))}
             </ol>
@@ -264,6 +429,7 @@ export function LessonWorkspace({
   const [textDocumentBody, setTextDocumentBody] = useState("");
   const [chatQuestion, setChatQuestion] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isDragActive, setIsDragActive] = useState(false);
   const [isUploadingText, setIsUploadingText] = useState(false);
@@ -371,6 +537,10 @@ export function LessonWorkspace({
         <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>
       ) : null}
 
+      {notice ? (
+        <p className="rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-800">{notice}</p>
+      ) : null}
+
       {activeTab === "overview" ? (
         <section className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
           <article className="rounded-[2rem] border border-white/80 bg-white/90 p-6 shadow-[0_18px_45px_rgba(15,23,42,0.06)]">
@@ -474,6 +644,7 @@ export function LessonWorkspace({
               onSubmit={async (event) => {
                 event.preventDefault();
                 setError("");
+                setNotice("");
 
                 if (selectedFiles.length === 0) {
                   setError("Choose at least one PDF, DOCX, or TXT file to upload.");
@@ -495,13 +666,23 @@ export function LessonWorkspace({
                 setIsUploadingFiles(false);
 
                 if (!response.ok) {
-                  const payload = (await response.json()) as { error?: string };
-                  setError(payload.error ?? "Could not upload files.");
+                  const payload = (await response.json()) as {
+                    error?: string;
+                    failures?: Array<{ fileName: string; error: string }>;
+                  };
+                  const failureMessage =
+                    payload.failures && payload.failures.length > 0
+                      ? ` ${payload.failures
+                          .map((failure) => `${failure.fileName}: ${failure.error}`)
+                          .join(" | ")}`
+                      : "";
+                  setError(`${payload.error ?? "Could not upload files."}${failureMessage}`);
                   return;
                 }
 
                 const payload = (await response.json()) as {
                   documents: Array<{ chunkCount: number }>;
+                  failures?: Array<{ fileName: string; error: string }>;
                 };
                 const uploadedChunkCount = payload.documents.reduce(
                   (total, document) => total + document.chunkCount,
@@ -515,6 +696,15 @@ export function LessonWorkspace({
                 setSelectedFiles([]);
                 if (fileInputRef.current) {
                   fileInputRef.current.value = "";
+                }
+                if (payload.failures && payload.failures.length > 0) {
+                  setNotice(
+                    `Uploaded ${payload.documents.length} file${
+                      payload.documents.length === 1 ? "" : "s"
+                    }, but skipped ${payload.failures.length}: ${payload.failures
+                      .map((failure) => `${failure.fileName}: ${failure.error}`)
+                      .join(" | ")}`,
+                  );
                 }
                 await refreshDocuments();
               }}

@@ -78,40 +78,67 @@ export async function POST(request: Request, { params }: Params) {
         );
       }
 
-      const results = [];
+      const results: Array<{
+        documentId: string;
+        chunkCount: number;
+        title: string;
+        sourceType: string;
+      }> = [];
+      const failures: Array<{ fileName: string; error: string }> = [];
 
       for (const file of files) {
-        const extracted = await extractTextFromFile(file);
+        try {
+          const extracted = await extractTextFromFile(file);
 
-        if (extracted.rawText.trim().length < 20) {
-          continue;
+          if (extracted.rawText.trim().length < 20) {
+            failures.push({
+              fileName: file.name,
+              error: "Not enough readable text was extracted from this file.",
+            });
+            continue;
+          }
+
+          const result = await ingestTextDocument({
+            lessonId: lesson.id,
+            title: extracted.title,
+            rawText: extracted.rawText,
+            sourceType: extracted.sourceType,
+            fileName: extracted.fileName,
+            mimeType: extracted.mimeType,
+            size: extracted.size,
+          });
+
+          results.push({
+            ...result,
+            title: extracted.title,
+            sourceType: extracted.sourceType,
+          });
+        } catch (error) {
+          failures.push({
+            fileName: file.name,
+            error:
+              error instanceof Error ? error.message : "Could not process this file.",
+          });
         }
-
-        const result = await ingestTextDocument({
-          lessonId: lesson.id,
-          title: extracted.title,
-          rawText: extracted.rawText,
-          sourceType: extracted.sourceType,
-          fileName: extracted.fileName,
-          mimeType: extracted.mimeType,
-          size: extracted.size,
-        });
-
-        results.push({
-          ...result,
-          title: extracted.title,
-          sourceType: extracted.sourceType,
-        });
       }
 
       if (results.length === 0) {
         return NextResponse.json(
-          { error: "No readable document text was extracted from the uploaded files." },
-          { status: 400 },
+          {
+            error: "None of the uploaded files could be processed.",
+            failures,
+          },
+          { status: 422 },
         );
       }
 
-      return NextResponse.json({ documents: results }, { status: 201 });
+      return NextResponse.json(
+        {
+          documents: results,
+          failures,
+        },
+        { status: 201 },
+      );
     }
 
     const body = (await request.json()) as { title?: string; text?: string };
