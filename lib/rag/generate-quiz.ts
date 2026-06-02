@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { generateQuizWithAgent } from "@/lib/ai/agents";
 import { generateQuizFromContext } from "@/lib/ai/quiz-generation";
 import { retrieveRelevantChunks } from "@/lib/rag/retrieve-chunks";
 
@@ -7,17 +8,35 @@ export async function generateQuizForLessonId(
   lessonTitle: string,
   questionCount = 5,
 ) {
-  const relevantChunks = await retrieveRelevantChunks(lessonId, lessonTitle, 8);
+  let questions: Awaited<ReturnType<typeof generateQuizFromContext>> | null = null;
+  let relevantChunks: Awaited<ReturnType<typeof retrieveRelevantChunks>> = [];
 
-  if (relevantChunks.length === 0) {
-    throw new Error("No chunks are available for this lesson yet.");
+  try {
+    const agentResult = await generateQuizWithAgent({
+      lessonId,
+      lessonTitle,
+      questionCount,
+    });
+
+    questions = agentResult.questions;
+    relevantChunks = agentResult.relevantChunks;
+  } catch {
+    questions = null;
   }
 
-  const questions = await generateQuizFromContext({
-    lessonTitle,
-    contextChunks: relevantChunks.map((chunk) => chunk.content),
-    questionCount,
-  });
+  if (!questions || relevantChunks.length === 0) {
+    relevantChunks = await retrieveRelevantChunks(lessonId, lessonTitle, 8);
+
+    if (relevantChunks.length === 0) {
+      throw new Error("No chunks are available for this lesson yet.");
+    }
+
+    questions = await generateQuizFromContext({
+      lessonTitle,
+      contextChunks: relevantChunks.map((chunk) => chunk.content),
+      questionCount,
+    });
+  }
 
   const assessment = await prisma.lessonAssessment.create({
     data: {

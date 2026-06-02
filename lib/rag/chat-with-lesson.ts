@@ -1,3 +1,4 @@
+import { answerLessonQuestionWithAgent } from "@/lib/ai/agents";
 import { answerQuestionFromContext } from "@/lib/ai/chat-answer";
 import { retrieveRelevantChunks } from "@/lib/rag/retrieve-chunks";
 
@@ -6,17 +7,35 @@ export async function chatWithLesson(
   lessonTitle: string,
   question: string,
 ) {
-  const relevantChunks = await retrieveRelevantChunks(lessonId, question, 6);
+  let answer: string | null = null;
+  let relevantChunks: Awaited<ReturnType<typeof retrieveRelevantChunks>> = [];
 
-  if (relevantChunks.length === 0) {
-    throw new Error("No chunks are available for this lesson yet.");
+  try {
+    const agentResult = await answerLessonQuestionWithAgent({
+      lessonId,
+      lessonTitle,
+      question,
+    });
+
+    answer = agentResult.answer.trim();
+    relevantChunks = agentResult.relevantChunks;
+  } catch {
+    answer = null;
   }
 
-  const answer = await answerQuestionFromContext({
-    lessonTitle,
-    question,
-    contextChunks: relevantChunks.map((chunk) => chunk.content),
-  });
+  if (!answer || relevantChunks.length === 0) {
+    relevantChunks = await retrieveRelevantChunks(lessonId, question, 6);
+
+    if (relevantChunks.length === 0) {
+      throw new Error("No chunks are available for this lesson yet.");
+    }
+
+    answer = await answerQuestionFromContext({
+      lessonTitle,
+      question,
+      contextChunks: relevantChunks.map((chunk) => chunk.content),
+    });
+  }
 
   return {
     answer,

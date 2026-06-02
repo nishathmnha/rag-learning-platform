@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { generateLessonWithAgent } from "@/lib/ai/agents";
 import { generateLessonFromContext } from "@/lib/ai/lesson-generation";
 import { retrieveRelevantChunks } from "@/lib/rag/retrieve-chunks";
 
@@ -6,16 +7,33 @@ export async function generateLessonForLessonId(
   lessonId: string,
   lessonTitle: string,
 ) {
-  const relevantChunks = await retrieveRelevantChunks(lessonId, lessonTitle);
+  let content: string | null = null;
+  let relevantChunks: Awaited<ReturnType<typeof retrieveRelevantChunks>> = [];
 
-  if (relevantChunks.length === 0) {
-    throw new Error("No chunks are available for this lesson yet.");
+  try {
+    const agentResult = await generateLessonWithAgent({
+      lessonId,
+      lessonTitle,
+    });
+
+    content = agentResult.content.trim();
+    relevantChunks = agentResult.relevantChunks;
+  } catch {
+    content = null;
   }
 
-  const content = await generateLessonFromContext({
-    lessonTitle,
-    contextChunks: relevantChunks.map((chunk) => chunk.content),
-  });
+  if (!content || relevantChunks.length === 0) {
+    relevantChunks = await retrieveRelevantChunks(lessonId, lessonTitle);
+
+    if (relevantChunks.length === 0) {
+      throw new Error("No chunks are available for this lesson yet.");
+    }
+
+    content = await generateLessonFromContext({
+      lessonTitle,
+      contextChunks: relevantChunks.map((chunk) => chunk.content),
+    });
+  }
 
   const generatedLesson = await prisma.generatedLesson.create({
     data: {

@@ -10,6 +10,7 @@ A simple learning-focused RAG project built with Next.js, Prisma, PostgreSQL, La
 - Separate `lib/ai` and `lib/rag` backend foundation
 - Multi-file document ingestion for `pdf`, `docx`, and `txt`
 - Shared retrieval for lesson generation, MCQ generation, and chat APIs
+- Vercel AI SDK agent layer with lesson retrieval and source-catalog tools
 
 ## Run Locally
 
@@ -50,11 +51,12 @@ npm run dev
 - Auth.js (`next-auth`)
 - bcryptjs
 - OpenAI Node SDK
+- Vercel AI SDK
 
 ## RAG Structure
 
 - `lib/ai/*`
-  - OpenAI client, embeddings, and lesson generation only
+  - OpenAI client, Vercel AI SDK agents/tools, embeddings, and generation
 - `lib/rag/*`
   - chunking, LanceDB indexing/retrieval, and orchestration
 - `app/api/lessons/[id]/documents`
